@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Image Label Generator</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #a1c4fd, #c2e9fb); /* 🌈 Soft blue gradient */
+      padding: 30px;
+      margin: 0;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: auto;
+      background: #ffffff;
+      padding: 30px;
+      border-radius: 20px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    }
+
+    h2 {
+      text-align: center;
+      color: #333333;
+      margin-bottom: 25px;
+    }
+
+    input[type="file"] {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      margin-bottom: 20px;
+      background-color: #fafafa;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 10px;
+      border: none;
+      color: white;
+      background-color: #007bff;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #preview {
+      display: none;
+      max-width: 100%;
+      margin: 20px auto;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .label-chip {
+      display: inline-block;
+      background-color: #e6f0ff;
+      color: #003366;
+      padding: 10px 15px;
+      margin: 6px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+
+    .label-chip:hover {
+      transform: scale(1.05);
+    }
+
+    #labels {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🔍 Image Label Generator</h2>
+
+    <input type="file" id="imageInput" accept="image/*" />
+    <img id="preview" alt="Image preview" />
+
+    <button id="analyzeButton">Upload & Analyze Image</button>
+
+    <h2>Detected Labels</h2>
+    <div id="labels"></div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const analyzeButton = document.getElementById('analyzeButton');
+      const imageInput = document.getElementById('imageInput');
+      const labelsList = document.getElementById('labels');
+      const preview = document.getElementById('preview');
+      const baseUrl = "https://rg245v9fr0.execute-api.us-east-1.amazonaws.com/prod";
+      const uploadUrlEndpoint = `${baseUrl}/upload-url`;
+      const analyzeEndpoint = `${baseUrl}/analyze`;
+
+      imageInput.addEventListener("change", () => {
+        const file = imageInput.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            preview.src = reader.result;
+            preview.style.display = "block";
+          };
+          reader.readAsDataURL(file);
+        } else {
+          preview.style.display = "none";
+        }
+      });
+
+      analyzeButton.addEventListener("click", async () => {
+        const file = imageInput.files[0];
+        if (!file) {
+          alert("Please select an image.");
+          return;
+        }
+
+        const fileName = file.name;
+        const contentType = file.type;
+
+        try {
+          const uploadRes = await fetch(uploadUrlEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: fileName, contentType })
+          });
+
+          const { uploadURL } = await uploadRes.json();
+          if (!uploadURL) throw new Error("No upload URL returned.");
+
+          const putRes = await fetch(uploadURL, {
+            method: "PUT",
+            headers: { "Content-Type": contentType },
+            body: file
+          });
+
+          if (!putRes.ok) throw new Error("Failed to upload image.");
+
+          const analyzeRes = await fetch(analyzeEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bucket: "rekognition-project-asiphe-2025", key: fileName })
+          });
+
+          const labels = await analyzeRes.json();
+          labelsList.innerHTML = "";
+
+          if (Array.isArray(labels)) {
+            labels.forEach(label => {
+              const div = document.createElement("div");
+              div.className = "label-chip";
+              if (label.Name && typeof label.Confidence === "number") {
+                div.textContent = `${label.Name} (${label.Confidence.toFixed(1)}%)`;
+              } else {
+                div.textContent = `⚠️ ${JSON.stringify(label)}`;
+              }
+              labelsList.appendChild(div);
+            });
+          } else {
+            labelsList.innerHTML = `<div class="label-chip">⚠️ Unexpected response</div>`;
+          }
+
+        } catch (err) {
+          console.error("Request failed:", err);
+          alert("❌ Something went wrong. Check network or CORS.");
+        }
+      });
+    });
+  </script>
+</body>
+</html>
